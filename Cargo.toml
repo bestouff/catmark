@@ -1,0 +1,14 @@
+[package]
+name = "catmark"
+version = "0.0.0"
+authors = [ "Xavier Bestel <xavier.bestel@free.fr>" ]
+license = "GPL"
+description = "Console printer for CommonMark"
+repository = "https://github.com/bestouff/catmark"
+
+[dependencies]
+pulldown-cmark = "*"
+ansi_term = "*"
+syntect = "*"
+unicode-segmentation = "*"
+unicode-width = "*"
