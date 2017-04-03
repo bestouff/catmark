@@ -1,3 +1,3 @@
-#CatMark - a console printer for CommonMark
+# CatMark - a console printer for CommonMark
 
 This is totally unusable WIP. Don't even try.
