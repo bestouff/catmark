@@ -144,8 +144,8 @@ enum BoxKind<'a> {
     Block,
     Header(u8),
     BlockQuote,
-    List(Option<usize>),
-    ListItem,
+    List(Option<u16>),
+    ListBullet,
     Table,
     TableColumn,
     TableItem,
@@ -297,6 +297,26 @@ impl<'a> DomBox<'a> {
                   });
         self.children.last_mut().unwrap()
     }
+    fn add_list(&mut self, start: Option<u16>) -> &mut DomBox<'a> {
+        self.children
+            .push(DomBox {
+                      size: Default::default(),
+                      kind: BoxKind::List(start),
+                      style: self.style.clone(),
+                      children: vec![],
+                  });
+        self.children.last_mut().unwrap()
+    }
+    fn add_bullet(&mut self) -> &mut DomBox<'a> {
+        self.children
+            .push(DomBox {
+                      size: Default::default(),
+                      kind: BoxKind::ListBullet,
+                      style: self.style.clone(),
+                      children: vec![],
+                  });
+        self.children.last_mut().unwrap()
+    }
     fn add_break(&mut self) -> &mut DomBox<'a> {
         self.children
             .push(DomBox {
@@ -376,25 +396,32 @@ impl<'a> DomBox<'a> {
         let res = match self.kind {
             BoxKind::Block |
             BoxKind::BlockQuote |
+            BoxKind::ListBullet |
             BoxKind::Header(_) => self.layout_block(cursor),
             BoxKind::InlineContainer => self.layout_inline_container(cursor),
+            BoxKind::List(_) => self.layout_list(cursor),
             BoxKind::Text(_) | BoxKind::Inline => self.layout_inline(cursor),
             BoxKind::Break => panic!("shouldn't layout a break"),
-            _ => unimplemented!(),
+            _ => panic!("unimplemented layout for {:?}", self.kind),
         };
         res
     }
     fn layout_block(&mut self, cursor: &mut BoxCursor) -> LayoutRes<DomBox<'a>> {
         let res = LayoutRes::Normal;
-        self.size.content.w = if cursor.container.content.w >
+        self.size.content.x = cursor.x + self.size.border.left;
+        self.size.content.y = cursor.y + self.size.border.top;
+        self.size.content.h = 0;
+        self.size.content.w = if cursor.container.content.w - cursor.x +
+                                 cursor.container.content.x >
                                  self.size.border.left + self.size.border.right {
-            cursor.container.content.w - self.size.border.left - self.size.border.right
+            cursor.container.content.w - cursor.x + cursor.container.content.x -
+            self.size.border.left - self.size.border.right
         } else {
             1
         };
-        self.size.content.h = 0;
-        self.size.content.x = cursor.x + self.size.border.left;
-        self.size.content.y = cursor.y + self.size.border.top;
+        if let BoxKind::ListBullet = self.kind {
+            self.size.content.w = 5; // FIXME awful awful !
+        }
         let mut subcursor = BoxCursor {
             x: self.size.content.x,
             y: self.size.content.y,
@@ -418,10 +445,67 @@ impl<'a> DomBox<'a> {
                                    self.children[i].size.border.bottom;
             i += 1;
         }
+        if let BoxKind::ListBullet = self.kind {
+            cursor.x += self.size.content.w + self.size.border.left + self.size.border.right;
+        } else {
+            cursor.x = cursor.container.content.x;
+            cursor.y += self.size.content.h + self.size.border.top + self.size.border.bottom;
+        }
+        res
+    }
+    fn layout_list(&mut self, cursor: &mut BoxCursor) -> LayoutRes<DomBox<'a>> {
+        let res = LayoutRes::Normal;
+        self.size.content.w = if cursor.container.content.w >
+                                 self.size.border.left + self.size.border.right {
+            cursor.container.content.w - self.size.border.left - self.size.border.right
+        } else {
+            1
+        };
+        self.size.content.h = 0;
+        self.size.content.x = cursor.x + self.size.border.left;
+        self.size.content.y = cursor.y + self.size.border.top;
+        let mut bulcursor = BoxCursor {
+            x: self.size.content.x,
+            y: self.size.content.y,
+            container: self.size,
+        };
+        let mut subcursor = BoxCursor {
+            x: self.size.content.x,
+            y: self.size.content.y,
+            container: self.size,
+        };
+        let mut i = 0;
+        while i < self.children.len() {
+            match self.children[i].kind {
+                BoxKind::ListBullet => {
+                    match self.children[i].layout_generic(&mut subcursor) {
+                        LayoutRes::Normal => (),
+                        LayoutRes::CutHere(next) => self.children.insert(i + 1, next),
+                        LayoutRes::Reject => {
+                            panic!("can't reject a {:?}", self.children[i].kind);
+                        }
+                    }
+                }
+                BoxKind::Block => {
+                    match self.children[i].layout_generic(&mut subcursor) {
+                        LayoutRes::Normal => (),
+                        LayoutRes::CutHere(next) => self.children.insert(i + 1, next),
+                        LayoutRes::Reject => {
+                            panic!("can't reject a {:?}", self.children[i].kind);
+                        }
+                    }
+                    self.size.content.h += self.children[i].size.content.h +
+                                           self.children[i].size.border.top +
+                                           self.children[i].size.border.bottom;
+                }
+                _ => panic!("can't layout a {:?} in a List", self.children[i].kind),
+            }
+            i += 1;
+        }
         cursor.y += self.size.content.h + self.size.border.top + self.size.border.bottom;
         res
     }
-    // OK I changed my mind, this is a LINE, and when split will give n lines
+    // this is a line, and when split will be 2 lines
     fn layout_inline_container(&mut self, cursor: &mut BoxCursor) -> LayoutRes<DomBox<'a>> {
         let mut res = LayoutRes::Normal;
         self.size.content.w = if cursor.container.content.w >
@@ -604,9 +688,23 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                                     let newline = parent.add_block(); // XXX ugly
                                     newline.add_text(Cow::from(""));
                                 }
-                                Tag::List(Some(start)) => {}
-                                Tag::List(None) => {}
-                                Tag::Item => {}
+                                Tag::List(Some(start)) => {
+                                    let child = parent.add_list(Some(start as u16));
+                                    self.build_dom(child);
+                                }
+                                Tag::List(None) => {
+                                    let child = parent.add_list(None);
+                                    self.build_dom(child);
+                                }
+                                Tag::Item => {
+                                    {
+                                        let bullet = parent.add_bullet();
+                                        bullet.style.fg = DomColor::from_dark(TermColor::Yellow);
+                                        bullet.size.border.right = 1;
+                                    }
+                                    let child = parent.add_block();
+                                    self.build_dom(child);
+                                }
                                 Tag::Emphasis => {
                                     let child = parent.add_inline();
                                     child.style.italic = true;
@@ -653,9 +751,39 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                                 Tag::CodeBlock(_) => {
                                     break;
                                 }
-                                Tag::List(Some(_)) => {}
-                                Tag::List(None) => {}
-                                Tag::Item => {}
+                                Tag::List(None) => {
+                                    println!("bulletizing {:?}", parent.kind);
+                                    for child in &mut parent.children {
+                                        {
+                                            println!("in bullet {:?}", child.kind);
+                                            if let BoxKind::ListBullet = child.kind {
+                                                child.add_text(Cow::from("*"));
+                                                println!("adding bullet '{}'", "*");
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+                                Tag::List(Some(start)) => {
+                                    println!("bulletizing {:?}", parent.kind);
+                                    let mut i = start;
+                                    // TODO resize all bullets like the last one
+                                    //let end = start + node.children.len() / 2;
+                                    for child in &mut parent.children {
+                                        {
+                                            println!("in bullet {:?}", child.kind);
+                                            if let BoxKind::ListBullet = child.kind {
+                                                child.add_text(Cow::from(i.to_string()));
+                                                println!("adding bullet '{}'", i.to_string());
+                                                i += 1;
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+                                Tag::Item => {
+                                    break;
+                                }
                                 Tag::Emphasis => {
                                     break;
                                 }
