@@ -52,7 +52,7 @@ enum TermColor {
     White,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 struct DomColor(Option<u8>);
 
 impl DomColor {
@@ -92,7 +92,28 @@ enum TextAlign {
     Right,
 }
 
-#[derive(Debug, Clone)]
+impl Default for TextAlign {
+    fn default() -> TextAlign {
+        TextAlign::Left
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+enum BorderType {
+    Empty,
+    Dash,
+    Thin,
+    Double,
+    Bold,
+}
+
+impl Default for BorderType {
+    fn default() -> BorderType {
+        BorderType::Empty
+    }
+}
+
+#[derive(Debug, Default, Clone)]
 struct DomStyle {
     bg: DomColor,
     fg: DomColor,
@@ -100,8 +121,14 @@ struct DomStyle {
     underline: bool,
     strikethrough: bool,
     italic: bool,
-    code: bool,
+    code: bool, // XXX useless ?
+    extend: bool,
     align: TextAlign,
+    border_type: BorderType,
+    top_nb_type: BorderType,
+    bottom_nb_type: BorderType,
+    left_nb_type: BorderType,
+    right_nb_type: BorderType,
 }
 
 impl DomStyle {
@@ -143,7 +170,6 @@ enum BoxKind<'a> {
     Inline,
     Block,
     Header(u8),
-    BlockQuote,
     List(Option<u16>),
     ListBullet,
     Table,
@@ -218,16 +244,7 @@ impl<'a> DomBox<'a> {
         let mut dombox = DomBox {
             size: Default::default(),
             kind: BoxKind::Block,
-            style: DomStyle {
-                fg: DomColor::default(),
-                bg: DomColor::default(),
-                bold: false,
-                underline: false,
-                strikethrough: false,
-                italic: false,
-                code: false,
-                align: TextAlign::Left,
-            },
+            style: Default::default(),
             children: vec![],
         };
         dombox.size.content.w = width;
@@ -395,7 +412,6 @@ impl<'a> DomBox<'a> {
     fn layout_generic(&mut self, cursor: &mut BoxCursor) -> LayoutRes<DomBox<'a>> {
         let res = match self.kind {
             BoxKind::Block |
-            BoxKind::BlockQuote |
             BoxKind::ListBullet |
             BoxKind::Header(_) => self.layout_block(cursor),
             BoxKind::InlineContainer => self.layout_inline_container(cursor),
@@ -419,14 +435,12 @@ impl<'a> DomBox<'a> {
         } else {
             1
         };
-        if let BoxKind::ListBullet = self.kind {
-            self.size.content.w = 5; // FIXME awful awful !
-        }
         let mut subcursor = BoxCursor {
             x: self.size.content.x,
             y: self.size.content.y,
             container: self.size,
         };
+        let mut max_width = 0;
         let mut i = 0;
         while i < self.children.len() {
             if let BoxKind::Break = self.children[i].kind {
@@ -443,9 +457,18 @@ impl<'a> DomBox<'a> {
             self.size.content.h += self.children[i].size.content.h +
                                    self.children[i].size.border.top +
                                    self.children[i].size.border.bottom;
+            if self.children[i].size.content.w + self.children[i].size.border.left +
+               self.children[i].size.border.right > max_width {
+                max_width = self.children[i].size.content.w + self.children[i].size.border.left +
+                            self.children[i].size.border.right;
+            }
             i += 1;
         }
+        if !self.style.extend {
+            self.size.content.w = max_width;
+        }
         if let BoxKind::ListBullet = self.kind {
+            // XXX ugly
             cursor.x += self.size.content.w + self.size.border.left + self.size.border.right;
         } else {
             cursor.x = cursor.container.content.x;
@@ -573,24 +596,9 @@ impl<'a> DomBox<'a> {
             return (0, 0);
         }
         if line < self.size.content.y || line >= self.size.content.y + self.size.content.h {
-            // in the border
-            let mut s = String::with_capacity((self.size.content.w + self.size.border.left +
-                                               self.size.border.right) as
-                                              usize);
-            for _ in 0..self.size.content.w + self.size.border.left + self.size.border.right {
-                s.push('-');
-            }
-            let s = self.style.to_ansi().paint(s);
-            strings.push(s);
-            return (self.size.content.x - self.size.border.left,
-                    self.size.content.w + self.size.border.left + self.size.border.right);
+            return self.render_borderline(line, strings);
         }
-        let mut s = String::with_capacity(self.size.border.left as usize);
-        for _ in 0..self.size.border.left {
-            s.push('|');
-        }
-        let s = self.style.to_ansi().paint(s);
-        strings.push(s);
+        self.render_borderside(true, strings);
         let mut pos = self.size.content.x;
         match self.kind {
             BoxKind::Text(ref text) => {
@@ -601,7 +609,7 @@ impl<'a> DomBox<'a> {
             }
             _ => {
                 for child in &self.children {
-                    let insert_point = strings.len();
+                    let insert_point = strings.len() as u16;
                     let (start, len) = child.render_line(line, strings);
                     if len == 0 {
                         continue;
@@ -609,12 +617,7 @@ impl<'a> DomBox<'a> {
                     assert!(start >= pos);
                     assert!(start + len <= self.size.content.x + self.size.content.w);
                     if start > pos {
-                        let mut s = String::with_capacity((start - pos) as usize);
-                        for _ in 0..(start - pos) {
-                            s.push(' ');
-                        }
-                        let s = self.style.to_ansi().paint(s);
-                        strings.insert(insert_point, s);
+                        self.render_charline(' ', start - pos, Some(insert_point), strings);
                     }
                     pos = start + len;
                 }
@@ -622,22 +625,98 @@ impl<'a> DomBox<'a> {
             }
         }
         if pos < self.size.content.x + self.size.content.w {
-            let mut s = String::with_capacity((self.size.content.x + self.size.content.w - pos) as
-                                              usize);
-            for _ in 0..(self.size.content.x + self.size.content.w - pos) {
-                s.push(' ');
-            }
-            let s = self.style.to_ansi().paint(s);
-            strings.push(s);
+            self.render_charline(' ',
+                                 self.size.content.x + self.size.content.w - pos,
+                                 None,
+                                 strings);
         }
-        let mut s = String::with_capacity(self.size.border.right as usize);
+        self.render_borderside(false, strings);
+        return (self.size.content.x - self.size.border.left,
+                self.size.content.w + self.size.border.left + self.size.border.right);
+    }
+    fn render_borderline(&self, line: u16, strings: &mut Vec<ANSIString<'a>>) -> (u16, u16) {
+        let is_top = line < self.size.content.y;
+        let mut s = String::with_capacity(((self.size.content.w + self.size.border.left +
+                                            self.size.border.right) *
+                                           4) as usize);
+        for _ in 0..self.size.border.left {
+            match self.style.border_type {
+                _ => {
+                    s.push(if is_top { '┌' } else { '└' });
+                }
+            }
+        }
+        for _ in 0..self.size.content.w {
+            match self.style.border_type {
+                BorderType::Empty => {
+                    s.push(' ');
+                }
+                BorderType::Dash => {
+                    s.push('╌');
+                }
+                BorderType::Thin => {
+                    s.push('─');
+                }
+                BorderType::Double => {
+                    s.push('═');
+                }
+                BorderType::Bold => {
+                    s.push('━');
+                }
+            }
+        }
         for _ in 0..self.size.border.right {
-            s.push('|');
+            s.push(if is_top { '┐' } else { '┘' });
         }
         let s = self.style.to_ansi().paint(s);
         strings.push(s);
         return (self.size.content.x - self.size.border.left,
                 self.size.content.w + self.size.border.left + self.size.border.right);
+    }
+    fn render_borderside(&self, is_left: bool, strings: &mut Vec<ANSIString<'a>>) {
+        let width = if is_left {
+            self.size.border.left
+        } else {
+            self.size.border.right
+        };
+        let mut s = String::with_capacity((width * 4) as usize);
+        for _ in 0..width {
+            match self.style.border_type {
+                BorderType::Empty => {
+                    s.push(' ');
+                }
+                BorderType::Dash => {
+                    s.push('╎');
+                }
+                BorderType::Thin => {
+                    s.push('│');
+                }
+                BorderType::Double => {
+                    s.push('║');
+                }
+                BorderType::Bold => {
+                    s.push('┃');
+                }
+            }
+        }
+        let s = self.style.to_ansi().paint(s);
+        strings.push(s);
+    }
+    fn render_charline(&self,
+                       c: char,
+                       n: u16,
+                       insert: Option<u16>,
+                       strings: &mut Vec<ANSIString<'a>>) {
+        let mut s = String::with_capacity((n * 4) as usize);
+        for _ in 0..n {
+            s.push(c);
+        }
+        let s = self.style.to_ansi().paint(s);
+        if let Some(insert) = insert {
+            strings.insert(insert as usize, s);
+        } else {
+            strings.push(s);
+        }
     }
 }
 
@@ -654,21 +733,41 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                         Start(tag) => {
                             match tag {
                                 Tag::Paragraph => {
-                                    {
-                                        let child = parent.add_block();
-                                        self.build_dom(child);
-                                    }
-                                    let newline = parent.add_block(); // XXX ugly
-                                    newline.add_text(Cow::from(""));
+                                    let child = parent.add_block();
+                                    self.build_dom(child);
+                                    child.size.border.bottom = 1;
                                 }
                                 Tag::Rule => {
                                     let child = parent.add_block();
                                     child.size.border.bottom = 1;
+                                    child.style.border_type = BorderType::Thin;
                                     child.style.fg = DomColor::from_dark(TermColor::Yellow);
                                 }
                                 Tag::Header(level) => {
                                     let child = parent.add_header(level as u8);
                                     child.size.border.bottom = 1;
+                                    match level {
+                                        1 => {
+                                            child.size.border.top = 1;
+                                            child.size.border.left = 1;
+                                            child.size.border.right = 1;
+                                            child.style.border_type = BorderType::Thin;
+                                        }
+                                        2 => {
+                                            child.style.border_type = BorderType::Bold;
+                                        }
+                                        3 => {
+                                            child.style.border_type = BorderType::Double;
+                                        }
+                                        4 => {
+                                            child.style.border_type = BorderType::Thin;
+                                        }
+                                        5 => {
+                                            child.style.border_type = BorderType::Dash;
+                                        }
+                                        6 => {}
+                                        bad => panic!("wrong heading size {}", bad),
+                                    }
                                     child.style.fg = DomColor::from_dark(TermColor::Purple);
                                     self.build_dom(child);
                                 }
@@ -676,7 +775,17 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                                 Tag::TableHead => {}
                                 Tag::TableRow => {}
                                 Tag::TableCell => {}
-                                Tag::BlockQuote => {}
+                                Tag::BlockQuote => {
+                                    {
+                                        let child = parent.add_block();
+                                        self.build_dom(child);
+                                        child.size.border.left = 1;
+                                        child.style.border_type = BorderType::Thin;
+                                        child.style.fg = DomColor::from_dark(TermColor::Cyan);
+                                    }
+                                    let newline = parent.add_block(); // XXX ugly
+                                    newline.add_text(Cow::from(""));
+                                }
                                 Tag::CodeBlock(info) => {
                                     {
                                         let child = parent.add_block();
@@ -691,15 +800,17 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                                 Tag::List(Some(start)) => {
                                     let child = parent.add_list(Some(start as u16));
                                     self.build_dom(child);
+                                    child.size.border.bottom = 1;
                                 }
                                 Tag::List(None) => {
                                     let child = parent.add_list(None);
                                     self.build_dom(child);
+                                    child.size.border.bottom = 1;
                                 }
                                 Tag::Item => {
                                     {
                                         let bullet = parent.add_bullet();
-                                        bullet.style.fg = DomColor::from_dark(TermColor::Yellow);
+                                        bullet.style.fg = DomColor::from_light(TermColor::Yellow);
                                         bullet.size.border.right = 1;
                                     }
                                     let child = parent.add_block();
@@ -747,34 +858,30 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                                 Tag::TableHead => {}
                                 Tag::TableRow => {}
                                 Tag::TableCell => {}
-                                Tag::BlockQuote => {}
+                                Tag::BlockQuote => {
+                                    break;
+                                }
                                 Tag::CodeBlock(_) => {
                                     break;
                                 }
                                 Tag::List(None) => {
-                                    println!("bulletizing {:?}", parent.kind);
                                     for child in &mut parent.children {
                                         {
-                                            println!("in bullet {:?}", child.kind);
                                             if let BoxKind::ListBullet = child.kind {
                                                 child.add_text(Cow::from("*"));
-                                                println!("adding bullet '{}'", "*");
                                             }
                                         }
                                     }
                                     break;
                                 }
                                 Tag::List(Some(start)) => {
-                                    println!("bulletizing {:?}", parent.kind);
                                     let mut i = start;
                                     // TODO resize all bullets like the last one
                                     //let end = start + node.children.len() / 2;
                                     for child in &mut parent.children {
                                         {
-                                            println!("in bullet {:?}", child.kind);
                                             if let BoxKind::ListBullet = child.kind {
                                                 child.add_text(Cow::from(i.to_string()));
-                                                println!("adding bullet '{}'", i.to_string());
                                                 i += 1;
                                             }
                                         }
