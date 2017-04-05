@@ -5,6 +5,7 @@
 //! Command line tool to exercise pulldown-cmark.
 
 extern crate pulldown_cmark;
+extern crate syntect;
 extern crate ansi_term;
 extern crate unicode_segmentation;
 extern crate unicode_width;

@@ -11,6 +11,11 @@ use pulldown_cmark::{Event, Tag};
 use pulldown_cmark::Event::{Start, End, Text, Html, InlineHtml, SoftBreak, HardBreak,
                             FootnoteReference};
 
+use syntect::easy::HighlightLines;
+use syntect::parsing::SyntaxSet;
+use syntect::highlighting;
+use syntect::parsing::syntax_definition::SyntaxDefinition;
+
 use ansi_term::{Style, Colour};
 use ansi_term::{ANSIString, ANSIStrings};
 
@@ -720,11 +725,24 @@ impl<'a> DomBox<'a> {
     }
 }
 
-struct Ctx<I> {
+struct Ctx<'b, I> {
     iter: I,
+    syntaxes: &'b SyntaxSet,
+    themes: &'b highlighting::ThemeSet,
+    syndef: Option<&'b SyntaxDefinition>,
+    highline: Option<HighlightLines<'b>>,
 }
 
-impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
+impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
+    pub fn new(iter: I, syntaxes: &'b SyntaxSet, themes: &'b highlighting::ThemeSet) -> Self {
+        Ctx {
+            iter: iter,
+            syntaxes: syntaxes,
+            themes: themes,
+            syndef: None,
+            highline: None,
+        }
+    }
     pub fn build_dom(&mut self, parent: &mut DomBox<'a>) {
         loop {
             match self.iter.next() {
@@ -792,6 +810,12 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                                         child.style.code = true;
                                         child.style.fg = DomColor::from_dark(TermColor::White);
                                         child.style.bg = DomColor::from_dark(TermColor::Black);
+                                        self.syndef = self.syntaxes.find_syntax_by_token(&info);
+                                        if let Some(syn) = self.syndef {
+                                            self.highline =
+                                                Some(HighlightLines::new(syn,
+                                                                         &self.themes.themes["base16-ocean.dark"]));
+                                        }
                                         self.build_dom(child);
                                     }
                                     let newline = parent.add_block(); // XXX ugly
@@ -862,6 +886,8 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                                     break;
                                 }
                                 Tag::CodeBlock(_) => {
+                                    self.highline = None;
+                                    self.syndef = None;
                                     break;
                                 }
                                 Tag::List(None) => {
@@ -908,21 +934,67 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
                             }
                         }
                         Text(mut text) => {
-                            let mut add_break = false;
-                            if text.len() > 0 {
-                                // check if text ends with a newline
-                                let bytes = text.as_bytes();
-                                if bytes[bytes.len() - 1] == 10 {
-                                    add_break = true;
+                            if let Some(ref mut h) = self.highline {
+                                match text {
+                                    Cow::Borrowed(text) => {
+                                        let ranges = h.highlight(&text);
+                                        for (style, mut text) in ranges {
+                                            let mut add_break = false;
+                                            if text.len() > 0 {
+                                                // check if text ends with a newline
+                                                let bytes = text.as_bytes();
+                                                if bytes[bytes.len() - 1] == 10 {
+                                                    add_break = true;
+                                                }
+                                            }
+                                            if add_break {
+                                                text = &text[..text.len() - 1];
+                                            }
+                                            {
+                                                let child = parent.add_text(Cow::Borrowed(text));
+                                                child.style.fg =
+                                                    DomColor::from_color(style.foreground.r,
+                                                                         style.foreground.g,
+                                                                         style.foreground.b);
+                                                child.style.bold |=
+                                                    style
+                                                        .font_style
+                                                        .intersects(highlighting::FONT_STYLE_BOLD);
+                                                child.style.italic |=
+                                                    style
+                                                        .font_style
+                                                        .intersects(highlighting::FONT_STYLE_ITALIC);
+                                                child.style.underline |=
+                                                    style
+                                                        .font_style
+                                                        .intersects(highlighting::FONT_STYLE_UNDERLINE);
+                                            }
+                                            if add_break {
+                                                parent.add_break();
+                                            }
+                                        }
+                                    }
+                                    Cow::Owned(text) => {
+                                        unimplemented!();
+                                    }
                                 }
-                            }
-                            if add_break {
-                                let pos = text.len() - 1;
-                                split_at_in_place(&mut text, pos);
-                            }
-                            parent.add_text(text);
-                            if add_break {
-                                parent.add_break();
+                            } else {
+                                let mut add_break = false;
+                                if text.len() > 0 {
+                                    // check if text ends with a newline
+                                    let bytes = text.as_bytes();
+                                    if bytes[bytes.len() - 1] == 10 {
+                                        add_break = true;
+                                    }
+                                }
+                                if add_break {
+                                    let pos = text.len() - 1;
+                                    split_at_in_place(&mut text, pos);
+                                }
+                                parent.add_text(text);
+                                if add_break {
+                                    parent.add_break();
+                                }
                             }
                         }
                         Html(html) => {}
@@ -943,12 +1015,13 @@ impl<'a, I: Iterator<Item = Event<'a>>> Ctx<I> {
 }
 
 pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(buf: &mut String, iter: I) {
-    let mut ctx = Ctx { iter: iter };
+    let syntaxes = SyntaxSet::load_defaults_newlines();
+    let themes = highlighting::ThemeSet::load_defaults();
+    let mut ctx = Ctx::new(iter, &syntaxes, &themes);
     let mut root = DomBox::new_root(DEFAULT_COLS);
     ctx.build_dom(&mut root);
-    println!("root:\n{:#?}\n", root);
+    //println!("root:\n{:#?}\n", root);
     root.layout();
-    // write!(buf, "{}\n{}\n", ANSIStrings(&ctx.store), ANSIStrings(&ctx.links)).ok();
-    println!("root:\n{:#?}\n", root);
+    //println!("root:\n{:#?}\n", root);
     root.render();
 }
