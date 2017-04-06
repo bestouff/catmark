@@ -2,7 +2,7 @@
 //
 // GPL goes here
 
-//! Command line tool to exercise pulldown-cmark.
+//! Markdown (CommonMark) ANSI renderer.
 
 extern crate pulldown_cmark;
 extern crate syntect;
@@ -20,14 +20,12 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 
-fn render_ansi(text: &str) -> String {
+fn render_ansi(text: &str) {
     let mut opts = Options::empty();
     opts.insert(OPTION_ENABLE_TABLES);
     opts.insert(OPTION_ENABLE_FOOTNOTES);
-    let mut s = String::with_capacity(text.len() * 3 / 2);
     let p = Parser::new_ext(&text, opts);
-    ansi_renderer::push_ansi(&mut s, p);
-    s
+    ansi_renderer::push_ansi(p);
 }
 
 pub fn main() {
@@ -41,5 +39,5 @@ pub fn main() {
             .read_to_string(&mut input)
             .expect("unable to read stdin");
     }
-    print!("{}", render_ansi(&input));
+    render_ansi(&input);
 }

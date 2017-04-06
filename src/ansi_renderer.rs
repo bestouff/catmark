@@ -80,6 +80,9 @@ impl DomColor {
         DomColor(Some(level))
     }
     fn from_color(red: u8, green: u8, blue: u8) -> DomColor {
+        if (red >> 4) == (green >> 4) && (green >> 4) == (blue >> 4) {
+            return DomColor::from_grey(red);
+        }
         let red = (red as u32 * 6 / 256) as u8;
         let green = (green as u32 * 6 / 256) as u8;
         let blue = (blue as u32 * 6 / 256) as u8;
@@ -236,7 +239,7 @@ enum LayoutRes<T> {
     Reject,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct DomBox<'a> {
     kind: BoxKind<'a>,
     size: BoxSize,
@@ -729,7 +732,8 @@ struct Ctx<'b, I> {
     iter: I,
     syntaxes: &'b SyntaxSet,
     themes: &'b highlighting::ThemeSet,
-    syndef: Option<&'b SyntaxDefinition>,
+    syntax: Option<&'b SyntaxDefinition>,
+    pub theme: &'b str,
     highline: Option<HighlightLines<'b>>,
 }
 
@@ -739,7 +743,8 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
             iter: iter,
             syntaxes: syntaxes,
             themes: themes,
-            syndef: None,
+            syntax: None,
+            theme: "base16-eighties.dark",
             highline: None,
         }
     }
@@ -810,11 +815,12 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
                                         child.style.code = true;
                                         child.style.fg = DomColor::from_dark(TermColor::White);
                                         child.style.bg = DomColor::from_dark(TermColor::Black);
-                                        self.syndef = self.syntaxes.find_syntax_by_token(&info);
-                                        if let Some(syn) = self.syndef {
+                                        self.syntax = self.syntaxes.find_syntax_by_token(&info);
+                                        if let Some(syn) = self.syntax {
                                             self.highline =
                                                 Some(HighlightLines::new(syn,
-                                                                         &self.themes.themes["base16-ocean.dark"]));
+                                                                         &self.themes.themes
+                                                                              [self.theme]));
                                         }
                                         self.build_dom(child);
                                     }
@@ -887,7 +893,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
                                 }
                                 Tag::CodeBlock(_) => {
                                     self.highline = None;
-                                    self.syndef = None;
+                                    self.syntax = None;
                                     break;
                                 }
                                 Tag::List(None) => {
@@ -1014,7 +1020,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
     }
 }
 
-pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(buf: &mut String, iter: I) {
+pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(iter: I) {
     let syntaxes = SyntaxSet::load_defaults_newlines();
     let themes = highlighting::ThemeSet::load_defaults();
     let mut ctx = Ctx::new(iter, &syntaxes, &themes);
