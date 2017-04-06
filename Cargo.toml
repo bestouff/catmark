@@ -7,8 +7,8 @@ description = "Console printer for CommonMark"
 repository = "https://github.com/bestouff/catmark"
 
 [dependencies]
-pulldown-cmark = "*"
-ansi_term = "*"
-syntect = "*"
-unicode-segmentation = "*"
-unicode-width = "*"
+pulldown-cmark = "0.0"
+ansi_term = "0.9"
+syntect = "1.3"
+unicode-segmentation = "1.1"
+unicode-width = "0.1"
