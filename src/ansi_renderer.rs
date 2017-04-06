@@ -142,13 +142,13 @@ struct DomStyle {
 impl DomStyle {
     fn to_ansi(&self) -> Style {
         let mut astyle = Style::new();
-        match self.fg.0 {
+        match self.fg.index() {
             None => {}
             Some(idx) => {
                 astyle = astyle.fg(Colour::Fixed(idx));
             }
         }
-        match self.bg.0 {
+        match self.bg.index() {
             None => {}
             Some(idx) => {
                 astyle = astyle.on(Colour::Fixed(idx));
@@ -501,11 +501,6 @@ impl<'a> DomBox<'a> {
         self.size.content.h = 0;
         self.size.content.x = cursor.x + self.size.border.left;
         self.size.content.y = cursor.y + self.size.border.top;
-        let mut bulcursor = BoxCursor {
-            x: self.size.content.x,
-            y: self.size.content.y,
-            container: self.size,
-        };
         let mut subcursor = BoxCursor {
             x: self.size.content.x,
             y: self.size.content.y,
@@ -887,8 +882,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     child.style.bg = DomColor::from_dark(TermColor::Black);
                                     self.build_dom(child);
                                 }
-                                Tag::Link(dest, title) => {
-                                    println!("found link: '{}' '{}'", dest, title);
+                                Tag::Link(dest, _) => {
                                     if let Some(mut links) = self.links.take() {
                                         {
                                             let child = links.add_text(dest);
@@ -1043,7 +1037,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                             }
                                         }
                                     }
-                                    Cow::Owned(text) => {
+                                    Cow::Owned(_text) => {
                                         unimplemented!();
                                     }
                                 }
@@ -1068,11 +1062,11 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                         }
                         Html(html) => {
                             let child = parent.add_text(html);
-                            child.style.fg = DomColor::from_light(TermColor::Purple);
+                            child.style.fg = DomColor::from_light(TermColor::Red);
                         }
                         InlineHtml(html) => {
                             let child = parent.add_text(html);
-                            child.style.fg = DomColor::from_light(TermColor::Purple);
+                            child.style.fg = DomColor::from_light(TermColor::Red);
                         }
                         SoftBreak => {
                             parent.add_break();
