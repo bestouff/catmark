@@ -1,6 +1,6 @@
 [package]
 name = "catmark"
-version = "0.0.0"
+version = "0.1.0"
 authors = [ "Xavier Bestel <xavier.bestel@free.fr>" ]
 license = "GPL"
 description = "Console printer for CommonMark"
