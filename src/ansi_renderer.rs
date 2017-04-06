@@ -249,14 +249,20 @@ struct DomBox<'a> {
 
 impl<'a> DomBox<'a> {
     fn new_root(width: u16) -> DomBox<'a> {
-        let mut dombox = DomBox {
+        let mut dombox = DomBox::new_block();
+        dombox.size.content.w = width;
+        dombox
+    }
+    fn new_block() -> DomBox<'a> {
+        DomBox {
             size: Default::default(),
             kind: BoxKind::Block,
             style: Default::default(),
             children: vec![],
-        };
-        dombox.size.content.w = width;
-        dombox
+        }
+    }
+    fn swallow(&mut self, existing: DomBox<'a>) {
+        self.children.push(existing);
     }
     fn get_inline_container(&mut self) -> &mut DomBox<'a> {
         match self.kind {
@@ -271,7 +277,7 @@ impl<'a> DomBox<'a> {
                                       kind: BoxKind::InlineContainer,
                                       style: self.style.clone(),
                                       children: vec![],
-                                  })
+                                  });
                     }
                 }
                 self.children.last_mut().unwrap()
@@ -728,8 +734,10 @@ impl<'a> DomBox<'a> {
     }
 }
 
-struct Ctx<'b, I> {
+struct Ctx<'a, 'b, I> {
     iter: I,
+    links: Option<DomBox<'a>>,
+    footnotes: Option<DomBox<'a>>,
     syntaxes: &'b SyntaxSet,
     themes: &'b highlighting::ThemeSet,
     syntax: Option<&'b SyntaxDefinition>,
@@ -737,10 +745,12 @@ struct Ctx<'b, I> {
     highline: Option<HighlightLines<'b>>,
 }
 
-impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
+impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
     pub fn new(iter: I, syntaxes: &'b SyntaxSet, themes: &'b highlighting::ThemeSet) -> Self {
         Ctx {
             iter: iter,
+            links: None,
+            footnotes: None,
             syntaxes: syntaxes,
             themes: themes,
             syntax: None,
@@ -748,7 +758,20 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
             highline: None,
         }
     }
-    pub fn build_dom(&mut self, parent: &mut DomBox<'a>) {
+    fn build(&mut self, width: u16) -> DomBox<'a> {
+        self.links = Some(DomBox::new_block());
+        self.footnotes = Some(DomBox::new_block());
+        let mut root = DomBox::new_root(width);
+        self.build_dom(&mut root);
+        if let Some(links) = self.links.take() {
+            root.swallow(links);
+        }
+        if let Some(footnotes) = self.footnotes.take() {
+            root.swallow(footnotes);
+        }
+        root
+    }
+    fn build_dom(&mut self, parent: &mut DomBox<'a>) {
         loop {
             match self.iter.next() {
                 Some(event) => {
@@ -762,6 +785,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
                                 }
                                 Tag::Rule => {
                                     let child = parent.add_block();
+                                    child.style.extend = true;
                                     child.size.border.bottom = 1;
                                     child.style.border_type = BorderType::Thin;
                                     child.style.fg = DomColor::from_dark(TermColor::Yellow);
@@ -864,13 +888,50 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
                                     self.build_dom(child);
                                 }
                                 Tag::Link(dest, title) => {
+                                    println!("found link: '{}' '{}'", dest, title);
+                                    if let Some(mut links) = self.links.take() {
+                                        {
+                                            let child = links.add_text(dest);
+                                            child.style.fg = DomColor::from_dark(TermColor::Blue);
+                                            child.style.underline = true;
+                                        }
+                                        {
+                                            links.add_break();
+                                        }
+                                        self.links = Some(links);
+                                    }
                                     let child = parent.add_inline();
                                     child.style.underline = true;
                                     child.style.fg = DomColor::from_dark(TermColor::Blue);
                                     self.build_dom(child);
                                 }
-                                Tag::Image(dest, title) => {}
-                                Tag::FootnoteDefinition(name) => {}
+                                Tag::Image(dest, title) => {
+                                    {
+                                        let child = parent.add_text(title);
+                                        child.style.fg = DomColor::from_light(TermColor::Black);
+                                        child.style.bg = DomColor::from_dark(TermColor::Yellow);
+                                    }
+                                    {
+                                        let child = parent.add_text(dest);
+                                        child.style.fg = DomColor::from_dark(TermColor::Blue);
+                                        child.style.bg = DomColor::from_dark(TermColor::Yellow);
+                                        child.style.underline = true;
+                                    }
+                                    let child = parent.add_inline();
+                                    child.style.italic = true;
+                                    self.build_dom(child);
+                                }
+                                Tag::FootnoteDefinition(name) => {
+                                    if let Some(mut footnotes) = self.footnotes.take() {
+                                        {
+                                            let child = footnotes.add_text(name);
+                                            child.style.fg = DomColor::from_dark(TermColor::Green);
+                                            child.style.underline = true;
+                                        }
+                                        self.build_dom(&mut footnotes);
+                                        self.footnotes = Some(footnotes);
+                                    }
+                                }
                             }
                         }
                         End(tag) => {
@@ -878,9 +939,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
                                 Tag::Paragraph => {
                                     break;
                                 }
-                                Tag::Rule => {
-                                    break;
-                                }
+                                Tag::Rule => {}
                                 Tag::Header(_) => {
                                     break;
                                 }
@@ -932,11 +991,15 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
                                 Tag::Code => {
                                     break;
                                 }
-                                Tag::Link(dest, title) => {
+                                Tag::Link(_, _) => {
                                     break;
                                 }
-                                Tag::Image(_, _) => (), // shouldn't happen, handled in start
-                                Tag::FootnoteDefinition(name) => {}
+                                Tag::Image(_, _) => {
+                                    break;
+                                }
+                                Tag::FootnoteDefinition(_) => {
+                                    break;
+                                }
                             }
                         }
                         Text(mut text) => {
@@ -1003,15 +1066,25 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'b, I> {
                                 }
                             }
                         }
-                        Html(html) => {}
-                        InlineHtml(html) => {}
+                        Html(html) => {
+                            let child = parent.add_text(html);
+                            child.style.fg = DomColor::from_light(TermColor::Purple);
+                        }
+                        InlineHtml(html) => {
+                            let child = parent.add_text(html);
+                            child.style.fg = DomColor::from_light(TermColor::Purple);
+                        }
                         SoftBreak => {
                             parent.add_break();
                         }
                         HardBreak => {
                             parent.add_break();
                         }
-                        FootnoteReference(name) => {}
+                        FootnoteReference(name) => {
+                            let child = parent.add_text(name);
+                            child.style.fg = DomColor::from_dark(TermColor::Green);
+                            child.style.underline = true;
+                        }
                     }
                 }
                 None => break,
@@ -1024,8 +1097,7 @@ pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(iter: I) {
     let syntaxes = SyntaxSet::load_defaults_newlines();
     let themes = highlighting::ThemeSet::load_defaults();
     let mut ctx = Ctx::new(iter, &syntaxes, &themes);
-    let mut root = DomBox::new_root(DEFAULT_COLS);
-    ctx.build_dom(&mut root);
+    let mut root = ctx.build(DEFAULT_COLS);
     //println!("root:\n{:#?}\n", root);
     root.layout();
     //println!("root:\n{:#?}\n", root);
