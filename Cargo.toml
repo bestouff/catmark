@@ -2,7 +2,7 @@
 name = "catmark"
 version = "0.1.0"
 authors = [ "Xavier Bestel <xavier.bestel@free.fr>" ]
-license = "GPL"
+license = "GPL-3.0"
 description = "Console printer for CommonMark"
 repository = "https://github.com/bestouff/catmark"
 
