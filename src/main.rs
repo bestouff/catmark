@@ -11,6 +11,7 @@ extern crate unicode_segmentation;
 extern crate unicode_width;
 
 mod ansi_renderer;
+mod dombox;
 
 use pulldown_cmark::Parser;
 use pulldown_cmark::{Options, OPTION_ENABLE_TABLES, OPTION_ENABLE_FOOTNOTES};
