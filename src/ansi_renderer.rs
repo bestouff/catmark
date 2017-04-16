@@ -17,8 +17,6 @@ use syntect::parsing::syntax_definition::SyntaxDefinition;
 
 use dombox::{DomBox, BorderType, DomColor, TermColor, BoxKind, split_at_in_place};
 
-pub const DEFAULT_COLS: u16 = 80;
-
 struct Ctx<'a, 'b, I> {
     iter: I,
     links: Option<DomBox<'a>>,
@@ -377,11 +375,11 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
     }
 }
 
-pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(iter: I) {
+pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(iter: I, width: u16) {
     let syntaxes = SyntaxSet::load_defaults_newlines();
     let themes = highlighting::ThemeSet::load_defaults();
     let mut ctx = Ctx::new(iter, &syntaxes, &themes);
-    let mut root = ctx.build(DEFAULT_COLS);
+    let mut root = ctx.build(width);
     //println!("root:\n{:#?}\n", root);
     root.layout();
     //println!("root:\n{:#?}\n", root);
