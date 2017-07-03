@@ -1,6 +1,6 @@
 [package]
 name = "catmark"
-version = "0.2.0"
+version = "0.2.1"
 authors = [ "Xavier Bestel <xavier.bestel@free.fr>" ]
 license = "GPL-3.0"
 description = "Console printer for CommonMark"
@@ -13,3 +13,11 @@ term_size = "0.3"
 syntect = "1.3"
 unicode-segmentation = "1.1"
 unicode-width = "0.1"
+html2runes = { git = "https://github.com/Ruin0x11/html2runes" }
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "catmark"
+path = "src/main.rs"
