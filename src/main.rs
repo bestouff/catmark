@@ -35,5 +35,7 @@ pub fn main() {
             "unable to read stdin",
         );
     }
-    catmark::render_ansi(&input, width);
+    let result = catmark::render_ansi(&input, width);
+
+    println!("{}", result);
 }
