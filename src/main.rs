@@ -19,6 +19,8 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 
+use catmark::OutputKind;
+
 pub const DEFAULT_COLS: u16 = 80;
 
 pub fn main() {
@@ -35,7 +37,7 @@ pub fn main() {
             "unable to read stdin",
         );
     }
-    let result = catmark::render_ansi(&input, width);
+    let result = catmark::render_ansi(&input, width, OutputKind::Color);
 
     println!("{}", result);
 }

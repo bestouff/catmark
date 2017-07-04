@@ -17,21 +17,24 @@ use syntect::highlighting;
 use syntect::parsing::syntax_definition::SyntaxDefinition;
 
 use super::dombox::{DomBox, BorderType, DomColor, TermColor, BoxKind, split_at_in_place};
+use super::OutputKind;
 
-
-pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(iter: I, width: u16) -> String {
+pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(
+    iter: I,
+    width: u16,
+    kind: OutputKind,
+) -> String {
     let syntaxes = SyntaxSet::load_defaults_newlines();
     let themes = highlighting::ThemeSet::load_defaults();
     let mut ctx = Ctx::new(iter, &syntaxes, &themes);
     let mut root = ctx.build(width);
     root.layout();
-    let ansi_strings = root.render();
+    let ansi_strings = root.render(&kind);
 
     ansi_strings.into_iter().fold(String::new(), |s, ansi| {
         s + &ansi.to_string()
     })
 }
-
 
 struct Ctx<'a, 'b, I> {
     iter: I,

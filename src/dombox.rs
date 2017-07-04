@@ -13,6 +13,8 @@ use ansi_term::ANSIString;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use super::OutputKind;
+
 fn findsplit(s: &str, pos: usize) -> usize {
     if let Some(n) = UnicodeSegmentation::grapheme_indices(s, true).nth(pos) {
         return n.0;
@@ -129,33 +131,38 @@ pub struct DomStyle {
 }
 
 impl DomStyle {
-    pub fn to_ansi(&self) -> Style {
-        let mut astyle = Style::new();
-        match self.fg.index() {
-            None => {}
-            Some(idx) => {
-                astyle = astyle.fg(Colour::Fixed(idx));
+    pub fn to_ansi(&self, kind: &OutputKind) -> Style {
+        match *kind {
+            OutputKind::Plain => Style::new(),
+            OutputKind::Color => {
+                let mut astyle = Style::new();
+                match self.fg.index() {
+                    None => {}
+                    Some(idx) => {
+                        astyle = astyle.fg(Colour::Fixed(idx));
+                    }
+                }
+                match self.bg.index() {
+                    None => {}
+                    Some(idx) => {
+                        astyle = astyle.on(Colour::Fixed(idx));
+                    }
+                }
+                if self.bold {
+                    astyle = astyle.bold();
+                }
+                if self.underline {
+                    astyle = astyle.underline();
+                }
+                if self.strikethrough {
+                    astyle = astyle.strikethrough();
+                }
+                if self.italic {
+                    astyle = astyle.italic();
+                }
+                astyle
             }
         }
-        match self.bg.index() {
-            None => {}
-            Some(idx) => {
-                astyle = astyle.on(Colour::Fixed(idx));
-            }
-        }
-        if self.bold {
-            astyle = astyle.bold();
-        }
-        if self.underline {
-            astyle = astyle.underline();
-        }
-        if self.strikethrough {
-            astyle = astyle.strikethrough();
-        }
-        if self.italic {
-            astyle = astyle.italic();
-        }
-        astyle
     }
 
     #[cfg(never)]
@@ -598,17 +605,22 @@ impl<'a> DomBox<'a> {
         res
     }
 
-    pub fn render(&mut self) -> Vec<ANSIString<'a>> {
+    pub fn render(&mut self, kind: &OutputKind) -> Vec<ANSIString<'a>> {
         let mut strings = Vec::new();
         for line in 0..(self.size.height_plus_border()) {
-            self.render_line(line, &mut strings);
+            self.render_line(line, &mut strings, kind);
             strings.push(Style::default().paint("\n"));
         }
 
         strings
     }
 
-    fn render_line(&self, line: u16, strings: &mut Vec<ANSIString<'a>>) -> (u16, u16) {
+    fn render_line(
+        &self,
+        line: u16,
+        strings: &mut Vec<ANSIString<'a>>,
+        kind: &OutputKind,
+    ) -> (u16, u16) {
         if line < self.size.content.y - self.size.border.top ||
             line >= self.size.bottom() + self.size.border.bottom
         {
@@ -616,13 +628,13 @@ impl<'a> DomBox<'a> {
             return (0, 0);
         }
         if line < self.size.content.y || line >= self.size.bottom() {
-            return self.render_borderline(line, strings);
+            return self.render_borderline(line, strings, kind);
         }
-        self.render_borderside(true, strings);
+        self.render_borderside(true, strings, kind);
         let mut pos = self.size.content.x;
         match self.kind {
             BoxKind::Text(ref text) => {
-                let s = self.style.to_ansi().paint(text.to_string());
+                let s = self.style.to_ansi(kind).paint(text.to_string());
                 strings.push(s);
                 pos += UnicodeWidthStr::width(&text[..]) as u16;
                 assert!(pos <= self.size.right());
@@ -630,14 +642,14 @@ impl<'a> DomBox<'a> {
             _ => {
                 for child in &self.children {
                     let insert_point = strings.len() as u16;
-                    let (start, len) = child.render_line(line, strings);
+                    let (start, len) = child.render_line(line, strings, kind);
                     if len == 0 {
                         continue;
                     }
                     assert!(start >= pos);
                     assert!(start + len <= self.size.right());
                     if start > pos {
-                        self.render_charline(' ', start - pos, Some(insert_point), strings);
+                        self.render_charline(' ', start - pos, Some(insert_point), strings, kind);
                     }
                     pos = start + len;
                 }
@@ -645,15 +657,21 @@ impl<'a> DomBox<'a> {
             }
         }
         if pos < self.size.right() {
-            self.render_charline(' ', self.size.right() - pos, None, strings);
+            self.render_charline(' ', self.size.right() - pos, None, strings, kind);
         }
-        self.render_borderside(false, strings);
+        self.render_borderside(false, strings, kind);
         return (
             self.size.content.x - self.size.border.left,
             self.size.width_plus_border(),
         );
     }
-    fn render_borderline(&self, line: u16, strings: &mut Vec<ANSIString<'a>>) -> (u16, u16) {
+
+    fn render_borderline(
+        &self,
+        line: u16,
+        strings: &mut Vec<ANSIString<'a>>,
+        kind: &OutputKind,
+    ) -> (u16, u16) {
         let is_top = line < self.size.content.y;
         let mut s = String::with_capacity(((self.size.width_plus_border()) * 4) as usize);
         for _ in 0..self.size.border.left {
@@ -685,14 +703,20 @@ impl<'a> DomBox<'a> {
         for _ in 0..self.size.border.right {
             s.push(if is_top { '┐' } else { '┘' });
         }
-        let s = self.style.to_ansi().paint(s);
+        let s = self.style.to_ansi(kind).paint(s);
         strings.push(s);
         return (
             self.size.content.x - self.size.border.left,
             self.size.width_plus_border(),
         );
     }
-    fn render_borderside(&self, is_left: bool, strings: &mut Vec<ANSIString<'a>>) {
+
+    fn render_borderside(
+        &self,
+        is_left: bool,
+        strings: &mut Vec<ANSIString<'a>>,
+        kind: &OutputKind,
+    ) {
         let width = if is_left {
             self.size.border.left
         } else {
@@ -718,21 +742,23 @@ impl<'a> DomBox<'a> {
                 }
             }
         }
-        let s = self.style.to_ansi().paint(s);
+        let s = self.style.to_ansi(kind).paint(s);
         strings.push(s);
     }
+
     fn render_charline(
         &self,
         c: char,
         n: u16,
         insert: Option<u16>,
         strings: &mut Vec<ANSIString<'a>>,
+        kind: &OutputKind,
     ) {
         let mut s = String::with_capacity((n * 4) as usize);
         for _ in 0..n {
             s.push(c);
         }
-        let s = self.style.to_ansi().paint(s);
+        let s = self.style.to_ansi(kind).paint(s);
         if let Some(insert) = insert {
             strings.insert(insert as usize, s);
         } else {
