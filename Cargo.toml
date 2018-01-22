@@ -13,3 +13,11 @@ term_size = "0.3"
 syntect = "1.8"
 unicode-segmentation = "1.1"
 unicode-width = "0.1"
+html2runes = { git = "https://github.com/Ruin0x11/html2runes" }
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "catmark"
+path = "src/main.rs"
