@@ -310,15 +310,15 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                                 child.style.bold |=
                                                     style
                                                         .font_style
-                                                        .intersects(highlighting::FONT_STYLE_BOLD);
+                                                        .intersects(highlighting::FontStyle::BOLD);
                                                 child.style.italic |=
                                                     style
                                                         .font_style
-                                                        .intersects(highlighting::FONT_STYLE_ITALIC);
+                                                        .intersects(highlighting::FontStyle::ITALIC);
                                                 child.style.underline |=
                                                     style
                                                         .font_style
-                                                        .intersects(highlighting::FONT_STYLE_UNDERLINE);
+                                                        .intersects(highlighting::FontStyle::UNDERLINE);
                                             }
                                             if add_break {
                                                 parent.add_break();
