@@ -6,16 +6,17 @@
 
 use std::borrow::Cow;
 
+use pulldown_cmark::Event::{
+    End, FootnoteReference, HardBreak, Html, InlineHtml, SoftBreak, Start, Text,
+};
 use pulldown_cmark::{Event, Tag};
-use pulldown_cmark::Event::{Start, End, Text, Html, InlineHtml, SoftBreak, HardBreak,
-                            FootnoteReference};
 
 use syntect::easy::HighlightLines;
-use syntect::parsing::SyntaxSet;
 use syntect::highlighting;
 use syntect::parsing::syntax_definition::SyntaxDefinition;
+use syntect::parsing::SyntaxSet;
 
-use dombox::{DomBox, BorderType, DomColor, TermColor, BoxKind, split_at_in_place};
+use crate::dombox::{split_at_in_place, BorderType, BoxKind, DomBox, DomColor, TermColor, XY};
 
 struct Ctx<'a, 'b, I> {
     iter: I,
@@ -41,7 +42,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
             highline: None,
         }
     }
-    fn build(&mut self, width: u16) -> DomBox<'a> {
+    fn build(&mut self, width: XY) -> DomBox<'a> {
         self.links = Some(DomBox::new_block());
         self.footnotes = Some(DomBox::new_block());
         let mut root = DomBox::new_root(width);
@@ -64,23 +65,23 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                 Tag::Paragraph => {
                                     let child = parent.add_block();
                                     self.build_dom(child);
-                                    child.size.border.bottom = 1;
+                                    child.size.border.bottom += 1;
                                 }
                                 Tag::Rule => {
                                     let child = parent.add_block();
                                     child.style.extend = true;
-                                    child.size.border.bottom = 1;
+                                    child.size.border.bottom += 1;
                                     child.style.border_type = BorderType::Thin;
                                     child.style.fg = DomColor::from_dark(TermColor::Yellow);
                                 }
                                 Tag::Header(level) => {
                                     let child = parent.add_header(level as u8);
-                                    child.size.border.bottom = 1;
+                                    child.size.border.bottom += 1;
                                     match level {
                                         1 => {
-                                            child.size.border.top = 1;
-                                            child.size.border.left = 1;
-                                            child.size.border.right = 1;
+                                            child.size.border.top += 1;
+                                            child.size.border.left += 1;
+                                            child.size.border.right += 1;
                                             child.style.border_type = BorderType::Thin;
                                         }
                                         2 => {
@@ -106,13 +107,11 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                 Tag::TableRow => {}
                                 Tag::TableCell => {}
                                 Tag::BlockQuote => {
-                                    {
-                                        let child = parent.add_block();
-                                        self.build_dom(child);
-                                        child.size.border.left = 1;
-                                        child.style.border_type = BorderType::Thin;
-                                        child.style.fg = DomColor::from_dark(TermColor::Cyan);
-                                    }
+                                    let child = parent.add_block();
+                                    self.build_dom(child);
+                                    child.size.border.left += 1;
+                                    child.style.border_type = BorderType::Thin;
+                                    child.style.fg = DomColor::from_dark(TermColor::Cyan);
                                     let newline = parent.add_block(); // XXX ugly
                                     newline.add_text(Cow::from(""));
                                 }
@@ -124,10 +123,10 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                         child.style.bg = DomColor::from_dark(TermColor::Black);
                                         self.syntax = self.syntaxes.find_syntax_by_token(&info);
                                         if let Some(syn) = self.syntax {
-                                            self.highline =
-                                                Some(HighlightLines::new(syn,
-                                                                         &self.themes.themes
-                                                                              [self.theme]));
+                                            self.highline = Some(HighlightLines::new(
+                                                syn,
+                                                &self.themes.themes[self.theme],
+                                            ));
                                         }
                                         self.build_dom(child);
                                     }
@@ -135,20 +134,20 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     newline.add_text(Cow::from(""));
                                 }
                                 Tag::List(Some(start)) => {
-                                    let child = parent.add_list(Some(start as u16));
+                                    let child = parent.add_list(Some(start.try_into().unwrap()));
                                     self.build_dom(child);
-                                    child.size.border.bottom = 1;
+                                    child.size.border.bottom += 1;
                                 }
                                 Tag::List(None) => {
                                     let child = parent.add_list(None);
                                     self.build_dom(child);
-                                    child.size.border.bottom = 1;
+                                    child.size.border.bottom += 1;
                                 }
                                 Tag::Item => {
                                     {
                                         let bullet = parent.add_bullet();
                                         bullet.style.fg = DomColor::from_light(TermColor::Yellow);
-                                        bullet.size.border.right = 1;
+                                        bullet.size.border.right += 1;
                                     }
                                     let child = parent.add_block();
                                     self.build_dom(child);
@@ -303,22 +302,20 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                             }
                                             {
                                                 let child = parent.add_text(Cow::Borrowed(text));
-                                                child.style.fg =
-                                                    DomColor::from_color(style.foreground.r,
-                                                                         style.foreground.g,
-                                                                         style.foreground.b);
-                                                child.style.bold |=
-                                                    style
-                                                        .font_style
-                                                        .intersects(highlighting::FontStyle::BOLD);
-                                                child.style.italic |=
-                                                    style
-                                                        .font_style
-                                                        .intersects(highlighting::FontStyle::ITALIC);
-                                                child.style.underline |=
-                                                    style
-                                                        .font_style
-                                                        .intersects(highlighting::FontStyle::UNDERLINE);
+                                                child.style.fg = DomColor::from_color_lo(
+                                                    style.foreground.r,
+                                                    style.foreground.g,
+                                                    style.foreground.b,
+                                                );
+                                                child.style.bold |= style
+                                                    .font_style
+                                                    .intersects(highlighting::FontStyle::BOLD);
+                                                child.style.italic |= style
+                                                    .font_style
+                                                    .intersects(highlighting::FontStyle::ITALIC);
+                                                child.style.underline |= style
+                                                    .font_style
+                                                    .intersects(highlighting::FontStyle::UNDERLINE);
                                             }
                                             if add_break {
                                                 parent.add_break();
@@ -375,7 +372,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
     }
 }
 
-pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(iter: I, width: u16) {
+pub fn push_ansi<'a, I: Iterator<Item = Event<'a>>>(iter: I, width: XY) {
     let syntaxes = SyntaxSet::load_defaults_newlines();
     let themes = highlighting::ThemeSet::load_defaults();
     let mut ctx = Ctx::new(iter, &syntaxes, &themes);

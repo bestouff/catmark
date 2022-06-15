@@ -4,22 +4,16 @@
 
 //! Markdown (CommonMark) ANSI renderer.
 
-extern crate pulldown_cmark;
-extern crate syntect;
-extern crate ansi_term;
-extern crate term_size;
-extern crate unicode_segmentation;
-extern crate unicode_width;
-
 mod ansi_renderer;
 mod dombox;
+mod xy;
 
 use pulldown_cmark::Parser;
-use pulldown_cmark::{Options, OPTION_ENABLE_TABLES, OPTION_ENABLE_FOOTNOTES};
+use pulldown_cmark::{Options, OPTION_ENABLE_FOOTNOTES, OPTION_ENABLE_TABLES};
 
-use std::io;
 use std::env;
 use std::fs::File;
+use std::io;
 use std::io::Read;
 
 pub const DEFAULT_COLS: u16 = 80;
@@ -29,7 +23,7 @@ fn render_ansi(text: &str, width: u16) {
     opts.insert(OPTION_ENABLE_TABLES);
     opts.insert(OPTION_ENABLE_FOOTNOTES);
     let p = Parser::new_ext(&text, opts);
-    ansi_renderer::push_ansi(p, width);
+    ansi_renderer::push_ansi(p, width.into());
 }
 
 pub fn main() {
@@ -40,8 +34,7 @@ pub fn main() {
     }
     if let Some(arg1) = env::args().nth(1) {
         let mut f = File::open(arg1).expect("unable to open file");
-        f.read_to_string(&mut input)
-            .expect("unable to read file");
+        f.read_to_string(&mut input).expect("unable to read file");
     } else {
         io::stdin()
             .read_to_string(&mut input)

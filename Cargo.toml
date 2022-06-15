@@ -1,10 +1,11 @@
 [package]
 name = "catmark"
 version = "0.2.2"
-authors = [ "Xavier Bestel <xavier.bestel@free.fr>" ]
+authors = ["Xavier Bestel <xavier.bestel@free.fr>"]
 license = "GPL-3.0"
 description = "Console printer for CommonMark"
 repository = "https://github.com/bestouff/catmark"
+edition = "2021"
 
 [dependencies]
 pulldown-cmark = "0.1"
@@ -13,3 +14,4 @@ term_size = "0.3"
 syntect = "2.0"
 unicode-segmentation = "1.1"
 unicode-width = "0.1"
+newtype-ops = "0.1"
