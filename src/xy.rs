@@ -1,9 +1,10 @@
+use newtype_ops::newtype_ops;
 use std::fmt::Display;
 
-use newtype_ops::newtype_ops;
-
+/// Inner type for terminal coordinates - should be enough for even wide terminals
 type InnerCoord = u16;
 
+/// Public opaque type for terminal coordinates
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XY(InnerCoord);
 
@@ -38,4 +39,5 @@ impl Display for XY {
     }
 }
 
+// derive all arithmetic operations for `XY`
 newtype_ops! { [XY] {add sub mul div rem bitand bitor bitxor not} {:=} {^&}Self {^&}{Self InnerCoord} }

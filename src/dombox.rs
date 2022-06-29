@@ -50,6 +50,7 @@ pub enum TermColor {
     White,
 }
 
+/// Full color definition
 #[derive(Debug, Default, Clone)]
 pub struct DomColor(Option<u8>); // TODO enum (None, Simple(u8), Full(u8,u8,u8))
 
@@ -111,6 +112,7 @@ impl Default for BorderType {
     }
 }
 
+/// This is where the appearance of everything is stored - each element should have one
 #[derive(Debug, Default, Clone)]
 pub struct DomStyle {
     pub bg: DomColor,
@@ -160,22 +162,36 @@ impl DomStyle {
     }
 }
 
+/// A layouting element kind - which type of "box" is it
 #[derive(Debug, Clone)]
 pub enum BoxKind<'a> {
+    /// Some text (an inline element)
     Text(Cow<'a, str>),
+    /// A page break
     Break,
+    /// A rectangular container for inline elements
     InlineContainer,
+    /// An inline element
     Inline,
+    /// A simple rectangular block
     Block,
+    /// A title with a specific "weigth"
     Header(u8),
+    /// An ordered list with a start number
     List(Option<XY>),
+    /// An unordered list
     ListBullet,
+    /// The container for a table
     Table,
+    /// A table column
     TableColumn,
+    /// A table cell
     TableItem,
+    /// An image
     Image,
 }
 
+/// This has the bounding box (current box) as well as a cursor inside it
 #[derive(Default, Debug, Copy, Clone)]
 struct BoxCursor {
     container: BoxSize,
@@ -202,12 +218,14 @@ impl fmt::Display for BoxCursor {
     }
 }
 
+/// This is a bounding box: coordinates + size + borders
 #[derive(Default, Debug, Copy, Clone)]
 pub struct BoxSize {
     pub content: Rect,
     pub border: Edges,
 }
 
+/// Coordinates and side for a rectangle (a box)
 #[derive(Default, Debug, Copy, Clone)]
 pub struct Rect {
     x: XY,
@@ -216,6 +234,7 @@ pub struct Rect {
     h: XY,
 }
 
+/// Thicknesses of borders
 #[derive(Default, Debug, Copy, Clone)]
 pub struct Edges {
     pub top: XY,
@@ -224,13 +243,18 @@ pub struct Edges {
     pub right: XY,
 }
 
+/// Results of a layout operation
 #[derive(Debug)]
 enum LayoutRes<T> {
+    /// Everything fit correctly
     Normal,
+    /// Could only fit some `Inline` in an `InlineContainer`, remaining returned
     CutHere(T),
+    /// Couldn't make anything fit, invalid layout
     Reject,
 }
 
+/// The main layouting element
 #[derive(Debug, Clone)]
 pub struct DomBox<'a> {
     pub kind: BoxKind<'a>,
