@@ -4,13 +4,11 @@
 
 //! DOM for ANSI terminal rendering
 
-use std::borrow::Cow;
-use std::fmt;
-
+pub use crate::xy::XY;
 use ansi_term::{ANSIString, ANSIStrings};
 use ansi_term::{Colour, Style};
-
-pub use crate::xy::XY;
+use pulldown_cmark::CowStr;
+use std::fmt;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -24,17 +22,19 @@ fn findsplit(s: &str, pos: usize) -> usize {
     s.len()
 }
 
-pub fn split_at_in_place<'a>(cow: &mut Cow<'a, str>, mid: usize) -> Cow<'a, str> {
+pub fn split_at_in_place<'a>(cow: &mut CowStr<'a>, mid: usize) -> CowStr<'a> {
     match *cow {
-        Cow::Owned(ref mut s) => {
+        CowStr::Boxed(_) | CowStr::Inlined(_) => {
+            let mut s = cow.to_string();
             let s2 = s[mid..].to_string();
             s.truncate(mid);
-            Cow::Owned(s2)
+            *cow = s.into();
+            s2.into()
         }
-        Cow::Borrowed(s) => {
+        CowStr::Borrowed(s) => {
             let (s1, s2) = s.split_at(mid);
-            *cow = Cow::Borrowed(s1);
-            Cow::Borrowed(s2)
+            *cow = CowStr::Borrowed(s1);
+            CowStr::Borrowed(s2)
         }
     }
 }
@@ -84,32 +84,22 @@ impl DomColor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum TextAlign {
+    #[default]
     Left,
     Center,
     Right,
 }
 
-impl Default for TextAlign {
-    fn default() -> TextAlign {
-        TextAlign::Left
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub enum BorderType {
+    #[default]
     Empty,
     Dash,
     Thin,
     Double,
     Bold,
-}
-
-impl Default for BorderType {
-    fn default() -> BorderType {
-        BorderType::Empty
-    }
 }
 
 /// This is where the appearance of everything is stored - each element should have one
@@ -121,7 +111,6 @@ pub struct DomStyle {
     pub underline: bool,
     pub strikethrough: bool,
     pub italic: bool,
-    pub code: bool, // XXX useless ?
     pub extend: bool,
     pub align: TextAlign,
     pub border_type: BorderType,
@@ -166,7 +155,7 @@ impl DomStyle {
 #[derive(Debug, Clone)]
 pub enum BoxKind<'a> {
     /// Some text (an inline element)
-    Text(Cow<'a, str>),
+    Text(CowStr<'a>),
     /// A page break
     Break,
     /// A rectangular container for inline elements
@@ -302,7 +291,7 @@ impl<'a> DomBox<'a> {
             }
         }
     }
-    pub fn add_text(&mut self, text: Cow<'a, str>) -> &mut DomBox<'a> {
+    pub fn add_text(&mut self, text: CowStr<'a>) -> &mut DomBox<'a> {
         let inline_container = self.get_inline_container();
         inline_container.children.push(DomBox {
             size: Default::default(),

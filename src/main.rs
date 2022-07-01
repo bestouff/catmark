@@ -8,8 +8,7 @@ mod ansi_renderer;
 mod dombox;
 mod xy;
 
-use pulldown_cmark::Parser;
-use pulldown_cmark::{Options, OPTION_ENABLE_FOOTNOTES, OPTION_ENABLE_TABLES};
+use pulldown_cmark::{Options, Parser};
 
 use std::env;
 use std::fs::File;
@@ -19,10 +18,7 @@ use std::io::Read;
 pub const DEFAULT_COLS: u16 = 80;
 
 fn render_ansi(text: &str, width: u16) {
-    let mut opts = Options::empty();
-    opts.insert(OPTION_ENABLE_TABLES);
-    opts.insert(OPTION_ENABLE_FOOTNOTES);
-    let p = Parser::new_ext(&text, opts);
+    let p = Parser::new_ext(&text, Options::all());
     ansi_renderer::push_ansi(p, width.into());
 }
 

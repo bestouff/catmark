@@ -8,8 +8,8 @@ repository = "https://github.com/bestouff/catmark"
 edition = "2021"
 
 [dependencies]
-pulldown-cmark = "0.1"
-ansi_term = "0.11"
+pulldown-cmark = "0.9"
+ansi_term = "0.12"
 term_size = "0.3"
 syntect = "2.0"
 unicode-segmentation = "1.1"

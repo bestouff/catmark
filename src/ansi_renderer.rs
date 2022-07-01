@@ -4,19 +4,12 @@
 
 //! ANSI renderer for pulldown-cmark.
 
-use std::borrow::Cow;
-
-use pulldown_cmark::Event::{
-    End, FootnoteReference, HardBreak, Html, InlineHtml, SoftBreak, Start, Text,
-};
-use pulldown_cmark::{Event, Tag};
-
+use crate::dombox::{split_at_in_place, BorderType, BoxKind, DomBox, DomColor, TermColor, XY};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Tag};
 use syntect::easy::HighlightLines;
 use syntect::highlighting;
 use syntect::parsing::syntax_definition::SyntaxDefinition;
 use syntect::parsing::SyntaxSet;
-
-use crate::dombox::{split_at_in_place, BorderType, BoxKind, DomBox, DomColor, TermColor, XY};
 
 struct Ctx<'a, 'b, I> {
     iter: I,
@@ -60,44 +53,36 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
             match self.iter.next() {
                 Some(event) => {
                     match event {
-                        Start(tag) => {
+                        Event::Start(tag) => {
                             match tag {
                                 Tag::Paragraph => {
                                     let child = parent.add_block();
                                     self.build_dom(child);
                                     child.size.border.bottom += 1;
                                 }
-                                Tag::Rule => {
-                                    let child = parent.add_block();
-                                    child.style.extend = true;
-                                    child.size.border.bottom += 1;
-                                    child.style.border_type = BorderType::Thin;
-                                    child.style.fg = DomColor::from_dark(TermColor::Yellow);
-                                }
-                                Tag::Header(level) => {
+                                Tag::Heading(level, _id, _classes) => {
                                     let child = parent.add_header(level as u8);
                                     child.size.border.bottom += 1;
                                     match level {
-                                        1 => {
+                                        HeadingLevel::H1 => {
                                             child.size.border.top += 1;
                                             child.size.border.left += 1;
                                             child.size.border.right += 1;
                                             child.style.border_type = BorderType::Thin;
                                         }
-                                        2 => {
+                                        HeadingLevel::H2 => {
                                             child.style.border_type = BorderType::Bold;
                                         }
-                                        3 => {
+                                        HeadingLevel::H3 => {
                                             child.style.border_type = BorderType::Double;
                                         }
-                                        4 => {
+                                        HeadingLevel::H4 => {
                                             child.style.border_type = BorderType::Thin;
                                         }
-                                        5 => {
+                                        HeadingLevel::H5 => {
                                             child.style.border_type = BorderType::Dash;
                                         }
-                                        6 => {}
-                                        bad => panic!("wrong heading size {}", bad),
+                                        HeadingLevel::H6 => {}
                                     }
                                     child.style.fg = DomColor::from_dark(TermColor::Purple);
                                     self.build_dom(child);
@@ -113,28 +98,30 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     child.style.border_type = BorderType::Thin;
                                     child.style.fg = DomColor::from_dark(TermColor::Cyan);
                                     let newline = parent.add_block(); // XXX ugly
-                                    newline.add_text(Cow::from(""));
+                                    newline.add_text(CowStr::from(""));
                                 }
                                 Tag::CodeBlock(info) => {
                                     {
                                         let child = parent.add_block();
-                                        child.style.code = true;
                                         child.style.fg = DomColor::from_dark(TermColor::White);
                                         child.style.bg = DomColor::from_dark(TermColor::Black);
-                                        self.syntax = self.syntaxes.find_syntax_by_token(&info);
-                                        if let Some(syn) = self.syntax {
-                                            self.highline = Some(HighlightLines::new(
-                                                syn,
-                                                &self.themes.themes[self.theme],
-                                            ));
+                                        if let CodeBlockKind::Fenced(syn) = info {
+                                            self.syntax = self.syntaxes.find_syntax_by_token(&syn);
+                                            if let Some(syn) = self.syntax {
+                                                self.highline = Some(HighlightLines::new(
+                                                    syn,
+                                                    &self.themes.themes[self.theme],
+                                                ));
+                                            }
                                         }
                                         self.build_dom(child);
                                     }
                                     let newline = parent.add_block(); // XXX ugly
-                                    newline.add_text(Cow::from(""));
+                                    newline.add_text(CowStr::from(""));
                                 }
                                 Tag::List(Some(start)) => {
-                                    let child = parent.add_list(Some(start.try_into().unwrap()));
+                                    let child =
+                                        parent.add_list(Some((start as usize).try_into().unwrap()));
                                     self.build_dom(child);
                                     child.size.border.bottom += 1;
                                 }
@@ -162,14 +149,12 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     child.style.bold = true;
                                     self.build_dom(child);
                                 }
-                                Tag::Code => {
+                                Tag::Strikethrough => {
                                     let child = parent.add_inline();
-                                    child.style.code = true;
-                                    child.style.fg = DomColor::from_dark(TermColor::White);
-                                    child.style.bg = DomColor::from_dark(TermColor::Black);
+                                    child.style.strikethrough = true;
                                     self.build_dom(child);
                                 }
-                                Tag::Link(dest, _) => {
+                                Tag::Link(_linktype, dest, _title) => {
                                     if let Some(mut links) = self.links.take() {
                                         {
                                             let child = links.add_text(dest);
@@ -186,7 +171,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     child.style.fg = DomColor::from_dark(TermColor::Blue);
                                     self.build_dom(child);
                                 }
-                                Tag::Image(dest, title) => {
+                                Tag::Image(_linktype, dest, title) => {
                                     {
                                         let child = parent.add_text(title);
                                         child.style.fg = DomColor::from_light(TermColor::Black);
@@ -215,13 +200,12 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                 }
                             }
                         }
-                        End(tag) => {
+                        Event::End(tag) => {
                             match tag {
                                 Tag::Paragraph => {
                                     break;
                                 }
-                                Tag::Rule => {}
-                                Tag::Header(_) => {
+                                Tag::Heading(..) => {
                                     break;
                                 }
                                 Tag::Table(_) => {}
@@ -240,7 +224,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     for child in &mut parent.children {
                                         {
                                             if let BoxKind::ListBullet = child.kind {
-                                                child.add_text(Cow::from("*"));
+                                                child.add_text(CowStr::from("*"));
                                             }
                                         }
                                     }
@@ -253,7 +237,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     for child in &mut parent.children {
                                         {
                                             if let BoxKind::ListBullet = child.kind {
-                                                child.add_text(Cow::from(i.to_string()));
+                                                child.add_text(CowStr::from(i.to_string()));
                                                 i += 1;
                                             }
                                         }
@@ -269,24 +253,25 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                 Tag::Strong => {
                                     break;
                                 }
-                                Tag::Code => {
+                                Tag::Strikethrough => {
                                     break;
                                 }
-                                Tag::Link(_, _) => {
+                                Tag::Link(..) => {
                                     break;
                                 }
-                                Tag::Image(_, _) => {
+                                Tag::Image(..) => {
                                     break;
                                 }
-                                Tag::FootnoteDefinition(_) => {
+                                Tag::FootnoteDefinition(..) => {
                                     break;
                                 }
                             }
                         }
-                        Text(mut text) => {
+                        // FIXME handle Code specially
+                        Event::Text(mut text) | Event::Code(mut text) => {
                             if let Some(ref mut h) = self.highline {
                                 match text {
-                                    Cow::Borrowed(text) => {
+                                    CowStr::Borrowed(text) => {
                                         let ranges = h.highlight(&text);
                                         for (style, mut text) in ranges {
                                             let mut add_break = false;
@@ -301,7 +286,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                                 text = &text[..text.len() - 1];
                                             }
                                             {
-                                                let child = parent.add_text(Cow::Borrowed(text));
+                                                let child = parent.add_text(CowStr::Borrowed(text));
                                                 child.style.fg = DomColor::from_color_lo(
                                                     style.foreground.r,
                                                     style.foreground.g,
@@ -322,9 +307,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                             }
                                         }
                                     }
-                                    Cow::Owned(_text) => {
-                                        unimplemented!();
-                                    }
+                                    _ => unimplemented!(),
                                 }
                             } else {
                                 let mut add_break = false;
@@ -345,21 +328,29 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                 }
                             }
                         }
-                        Html(html) => {
+                        Event::TaskListMarker(checked) => {
+                            let child =
+                                parent.add_text(CowStr::from(if checked { "[ ]" } else { "[X]" }));
+                            self.build_dom(child);
+                        }
+                        Event::Rule => {
+                            let child = parent.add_block();
+                            child.style.extend = true;
+                            child.size.border.bottom += 1;
+                            child.style.border_type = BorderType::Thin;
+                            child.style.fg = DomColor::from_dark(TermColor::Yellow);
+                        }
+                        Event::Html(html) => {
                             let child = parent.add_text(html);
                             child.style.fg = DomColor::from_light(TermColor::Red);
                         }
-                        InlineHtml(html) => {
-                            let child = parent.add_text(html);
-                            child.style.fg = DomColor::from_light(TermColor::Red);
-                        }
-                        SoftBreak => {
+                        Event::SoftBreak => {
                             parent.add_break();
                         }
-                        HardBreak => {
+                        Event::HardBreak => {
                             parent.add_break();
                         }
-                        FootnoteReference(name) => {
+                        Event::FootnoteReference(name) => {
                             let child = parent.add_text(name);
                             child.style.fg = DomColor::from_dark(TermColor::Green);
                             child.style.underline = true;
