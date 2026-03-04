@@ -25,8 +25,8 @@ fn render_ansi(text: &str, width: u16) {
 pub fn main() {
     let mut input = String::new();
     let mut width = DEFAULT_COLS;
-    if let Some((w, _)) = term_size::dimensions() {
-        width = w as u16;
+    if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size() {
+        width = w;
     }
     if let Some(arg1) = env::args().nth(1) {
         let mut f = File::open(arg1).expect("unable to open file");

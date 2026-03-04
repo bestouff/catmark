@@ -5,10 +5,10 @@
 //! ANSI renderer for pulldown-cmark.
 
 use crate::dombox::{split_at_in_place, BorderType, BoxKind, DomBox, DomColor, TermColor, XY};
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Tag};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Tag, TagEnd};
 use syntect::easy::HighlightLines;
 use syntect::highlighting;
-use syntect::parsing::syntax_definition::SyntaxDefinition;
+use syntect::parsing::SyntaxReference;
 use syntect::parsing::SyntaxSet;
 
 struct Ctx<'a, 'b, I> {
@@ -17,7 +17,7 @@ struct Ctx<'a, 'b, I> {
     footnotes: Option<DomBox<'a>>,
     syntaxes: &'b SyntaxSet,
     themes: &'b highlighting::ThemeSet,
-    syntax: Option<&'b SyntaxDefinition>,
+    syntax: Option<&'b SyntaxReference>,
     pub theme: &'b str,
     highline: Option<HighlightLines<'b>>,
 }
@@ -60,7 +60,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     self.build_dom(child);
                                     child.size.border.bottom += 1;
                                 }
-                                Tag::Heading(level, _id, _classes) => {
+                                Tag::Heading { level, .. } => {
                                     let child = parent.add_header(level as u8);
                                     child.size.border.bottom += 1;
                                     match level {
@@ -91,7 +91,7 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                 Tag::TableHead => {}
                                 Tag::TableRow => {}
                                 Tag::TableCell => {}
-                                Tag::BlockQuote => {
+                                Tag::BlockQuote(_) => {
                                     let child = parent.add_block();
                                     self.build_dom(child);
                                     child.size.border.left += 1;
@@ -154,10 +154,10 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     child.style.strikethrough = true;
                                     self.build_dom(child);
                                 }
-                                Tag::Link(_linktype, dest, _title) => {
+                                Tag::Link { dest_url, .. } => {
                                     if let Some(mut links) = self.links.take() {
                                         {
-                                            let child = links.add_text(dest);
+                                            let child = links.add_text(dest_url);
                                             child.style.fg = DomColor::from_dark(TermColor::Blue);
                                             child.style.underline = true;
                                         }
@@ -171,14 +171,16 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     child.style.fg = DomColor::from_dark(TermColor::Blue);
                                     self.build_dom(child);
                                 }
-                                Tag::Image(_linktype, dest, title) => {
+                                Tag::Image {
+                                    dest_url, title, ..
+                                } => {
                                     {
                                         let child = parent.add_text(title);
                                         child.style.fg = DomColor::from_light(TermColor::Black);
                                         child.style.bg = DomColor::from_dark(TermColor::Yellow);
                                     }
                                     {
-                                        let child = parent.add_text(dest);
+                                        let child = parent.add_text(dest_url);
                                         child.style.fg = DomColor::from_dark(TermColor::Blue);
                                         child.style.bg = DomColor::from_dark(TermColor::Yellow);
                                         child.style.underline = true;
@@ -198,29 +200,33 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                         self.footnotes = Some(footnotes);
                                     }
                                 }
+                                _ => {
+                                    // Unhandled tags (HtmlBlock, DefinitionList, Superscript, etc.)
+                                    self.build_dom(parent);
+                                }
                             }
                         }
                         Event::End(tag) => {
                             match tag {
-                                Tag::Paragraph => {
+                                TagEnd::Paragraph => {
                                     break;
                                 }
-                                Tag::Heading(..) => {
+                                TagEnd::Heading(..) => {
                                     break;
                                 }
-                                Tag::Table(_) => {}
-                                Tag::TableHead => {}
-                                Tag::TableRow => {}
-                                Tag::TableCell => {}
-                                Tag::BlockQuote => {
+                                TagEnd::Table => {}
+                                TagEnd::TableHead => {}
+                                TagEnd::TableRow => {}
+                                TagEnd::TableCell => {}
+                                TagEnd::BlockQuote(_) => {
                                     break;
                                 }
-                                Tag::CodeBlock(_) => {
+                                TagEnd::CodeBlock => {
                                     self.highline = None;
                                     self.syntax = None;
                                     break;
                                 }
-                                Tag::List(None) => {
+                                TagEnd::List(false) => {
                                     for child in &mut parent.children {
                                         {
                                             if let BoxKind::ListBullet = child.kind {
@@ -230,7 +236,13 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     }
                                     break;
                                 }
-                                Tag::List(Some(start)) => {
+                                TagEnd::List(true) => {
+                                    let start: u64 = if let BoxKind::List(Some(s)) = parent.kind {
+                                        let v: usize = s.into();
+                                        v as u64
+                                    } else {
+                                        1
+                                    };
                                     let mut i = start;
                                     // TODO resize all bullets like the last one
                                     //let end = start + node.children.len() / 2;
@@ -244,27 +256,28 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                                     }
                                     break;
                                 }
-                                Tag::Item => {
+                                TagEnd::Item => {
                                     break;
                                 }
-                                Tag::Emphasis => {
+                                TagEnd::Emphasis => {
                                     break;
                                 }
-                                Tag::Strong => {
+                                TagEnd::Strong => {
                                     break;
                                 }
-                                Tag::Strikethrough => {
+                                TagEnd::Strikethrough => {
                                     break;
                                 }
-                                Tag::Link(..) => {
+                                TagEnd::Link => {
                                     break;
                                 }
-                                Tag::Image(..) => {
+                                TagEnd::Image => {
                                     break;
                                 }
-                                Tag::FootnoteDefinition(..) => {
+                                TagEnd::FootnoteDefinition => {
                                     break;
                                 }
+                                _ => {}
                             }
                         }
                         // FIXME handle Code specially
@@ -272,7 +285,8 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                             if let Some(ref mut h) = self.highline {
                                 match text {
                                     CowStr::Borrowed(text) => {
-                                        let ranges = h.highlight(&text);
+                                        let ranges =
+                                            h.highlight_line(&text, self.syntaxes).unwrap();
                                         for (style, mut text) in ranges {
                                             let mut add_break = false;
                                             if text.len() > 0 {
@@ -354,6 +368,14 @@ impl<'a, 'b, I: Iterator<Item = Event<'a>>> Ctx<'a, 'b, I> {
                             let child = parent.add_text(name);
                             child.style.fg = DomColor::from_dark(TermColor::Green);
                             child.style.underline = true;
+                        }
+                        Event::InlineMath(text) | Event::DisplayMath(text) => {
+                            let child = parent.add_text(text);
+                            child.style.fg = DomColor::from_dark(TermColor::Cyan);
+                        }
+                        Event::InlineHtml(html) => {
+                            let child = parent.add_text(html);
+                            child.style.fg = DomColor::from_light(TermColor::Red);
                         }
                     }
                 }

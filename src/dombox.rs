@@ -5,8 +5,8 @@
 //! DOM for ANSI terminal rendering
 
 pub use crate::xy::XY;
-use ansi_term::{ANSIString, ANSIStrings};
-use ansi_term::{Colour, Style};
+use nu_ansi_term::{AnsiString, AnsiStrings};
+use nu_ansi_term::{Color, Style};
 use pulldown_cmark::CowStr;
 use std::fmt;
 use unicode_segmentation::UnicodeSegmentation;
@@ -126,13 +126,13 @@ impl DomStyle {
         match self.fg.index() {
             None => {}
             Some(idx) => {
-                astyle = astyle.fg(Colour::Fixed(idx));
+                astyle = astyle.fg(Color::Fixed(idx));
             }
         }
         match self.bg.index() {
             None => {}
             Some(idx) => {
-                astyle = astyle.on(Colour::Fixed(idx));
+                astyle = astyle.on(Color::Fixed(idx));
             }
         }
         if self.bold {
@@ -598,9 +598,9 @@ impl<'a> DomBox<'a> {
             self.render_line(line.try_into().unwrap(), &mut strings);
             strings.push(Style::default().paint("\n"));
         }
-        println!("{}", ANSIStrings(&strings));
+        println!("{}", AnsiStrings(&strings));
     }
-    fn render_line(&self, line: XY, strings: &mut Vec<ANSIString<'a>>) -> (XY, XY) {
+    fn render_line(&self, line: XY, strings: &mut Vec<AnsiString<'a>>) -> (XY, XY) {
         if line < self.size.content.y - self.size.border.top
             || line >= self.size.content.y + self.size.content.h + self.size.border.bottom
         {
@@ -651,7 +651,7 @@ impl<'a> DomBox<'a> {
             self.size.content.w + self.size.border.left + self.size.border.right,
         );
     }
-    fn render_borderline(&self, line: XY, strings: &mut Vec<ANSIString<'a>>) -> (XY, XY) {
+    fn render_borderline(&self, line: XY, strings: &mut Vec<AnsiString<'a>>) -> (XY, XY) {
         let is_top = line < self.size.content.y;
         let mut s = String::with_capacity(
             ((self.size.content.w + self.size.border.left + self.size.border.right) * 4).into(),
@@ -692,7 +692,7 @@ impl<'a> DomBox<'a> {
             self.size.content.w + self.size.border.left + self.size.border.right,
         );
     }
-    fn render_borderside(&self, is_left: bool, strings: &mut Vec<ANSIString<'a>>) {
+    fn render_borderside(&self, is_left: bool, strings: &mut Vec<AnsiString<'a>>) {
         let width = if is_left {
             self.size.border.left
         } else {
@@ -726,7 +726,7 @@ impl<'a> DomBox<'a> {
         c: char,
         n: XY,
         insert: Option<XY>,
-        strings: &mut Vec<ANSIString<'a>>,
+        strings: &mut Vec<AnsiString<'a>>,
     ) {
         let mut s = String::with_capacity((n * 4).into());
         for _ in 0..n.into() {
